@@ -1,25 +1,26 @@
+import os
 from dotenv import load_dotenv
-from typing import Annotated, Literal
-from langgraph import StateGraph, START, END
-from langgraph.graph.message import add_message
-from langchain.chat_models import init_chat_model
-from pydantic import BaseModel, Field
-from typing_extensions import TypeDict
+from typing import Annotated, Literal, TypedDict
+from langgraph.graph import StateGraph
+from langgraph.constants import END, START
+from langchain_anthropic import ChatAnthropic
 
 load_dotenv()
 
-llm = init_chat_model("anthropic:claude-3-5-sonnet-latest")
+llm = ChatAnthropic(model="claude-3-sonnet-20240229", anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-class State(TypeDict):
+class State(TypedDict):
     """
     Define the state of the graph.
     """
-    messages: Annotated[list, add_message]
+    messages: list
 
 graph_builder = StateGraph(State)
 
 def chatbot(state: State):
-    return {"messages": [llm.invoke(state["messages"])]}
+    messages = state["messages"]
+    response = llm.invoke(messages)
+    return {"messages": messages + [{"role": "assistant", "content": response.content}]}
 
 graph_builder.add_node("chatbot", chatbot)
 graph_builder.add_edge(START, "chatbot")
@@ -33,6 +34,9 @@ while True:
     if state["messages"][-1]["role"] == "assistant":
         print(f"Assistant: {state['messages'][-1]['content']}")
     user_input = input("You: ")
-    state = graph.invoke({"messages": state["messages"] + [{"role": "user", "content": user_input}]})
     if user_input.lower() in ["exit", "quit"]:
+        break
+    state = graph.invoke({"messages": state["messages"] + [{"role": "user", "content": user_input}]})
+    continue_chat = input("Continue to iterate? (y/n): ").lower()
+    if continue_chat != 'y':
         break
